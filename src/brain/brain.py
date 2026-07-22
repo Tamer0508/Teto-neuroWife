@@ -1,5 +1,6 @@
 import os
 import time
+import json
 from google import genai
 from google.genai import types, errors
 from dotenv import load_dotenv
@@ -7,7 +8,17 @@ from dotenv import load_dotenv
 from personality import TETO_SYSTEM_PROMPT
 from memory import Memory
 
-MODEL = "gemini-3-flash-preview"
+MODEL = "gemini-3.1-flash-lite"
+EMOTIONS = ["joy", "neutral", "surprise", "sad", "embarrassed", "pout"]
+
+RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "text": {"type": "string"},
+        "emotion": {"type": "string", "enum": EMOTIONS},
+    },
+    "required": ["text", "emotion"],
+}
 
 
 class Brain:
@@ -34,6 +45,7 @@ class Brain:
                 time.sleep(wait)
             except errors.ClientError as e:
                 if e.code == 429:
+                    print(f"  [429] {e}")  
                     wait = min(2 ** attempt, 30)
                     print(f"  [лимит запросов, повтор через {wait} с...]")
                     time.sleep(wait)
@@ -56,6 +68,8 @@ class Brain:
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
+            response_mime_type="application/json",
+            response_schema=RESPONSE_SCHEMA,
         )
         self.history.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
         response = self._generate_with_retry(self.history, config)
@@ -63,11 +77,12 @@ class Brain:
         t2 = time.perf_counter()
         if response is None:
             self.history.pop()
-            return "Ой, серверы Gemini сейчас перегружены. Попробуй ещё раз чуть позже."
-
-        answer = response.text
+            return {"text": "Ой, серверы Gemini сейчас перегружены...", "emotion": "sad"}
+        data = json.loads(response.text)
+        answer = data["text"]
+        emotion = data["emotion"]
         self.history.append(types.Content(role="model", parts=[types.Part(text=answer)]))
         self.memory.remember(user_message, answer)
         t3 = time.perf_counter()
         print(f"  [тайминг] recall={t1-t0:.2f}s  llm={t2-t1:.2f}s  remember={t3-t2:.2f}s")
-        return answer
+        return {"text": answer, "emotion": emotion}

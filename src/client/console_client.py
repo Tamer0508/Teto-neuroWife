@@ -7,12 +7,12 @@ URI = "ws://localhost:8765"
 
 async def receiver(websocket):
     """Корутина №1: бесконечно слушает хаб и печатает ответы Тето."""
-    while True:
-        async for message in websocket:
-            data = json.loads(message)
-            if data["type"] == "teto_response":
-                text = data["data"]["text"]
-                print(f"\nТето: {text}\n")
+    async for message in websocket:
+        data = json.loads(message)
+        if data["type"] == "teto_response":
+            text = data["data"]["text"]
+            emotion = data["data"].get("emotion", "neutral")
+            print(f"\nТето [{emotion}]: {text}\n")
 
 
 async def sender(websocket):

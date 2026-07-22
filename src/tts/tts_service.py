@@ -18,8 +18,9 @@ async def main():
                 continue
         
             text = data["data"]["text"]
+            emotion = data["data"].get("emotion", "neutral")
 
-            await asyncio.to_thread(voice.speak, text)
+            await asyncio.to_thread(voice.speak, text, emotion)
 
 
 if __name__ == "__main__":

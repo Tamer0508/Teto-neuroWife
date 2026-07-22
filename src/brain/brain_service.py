@@ -26,12 +26,12 @@ async def main():
 
             # respond() синхронный и медленный -> уводим в поток,
             # чтобы не заморозить event loop и не оборвать соединение
-            answer = await asyncio.to_thread(brain.respond, user_text)
+            result = await asyncio.to_thread(brain.respond, user_text)
 
             envelope = {
                 "type": "teto_response",
                 "sender": "brain",
-                "data": {"text": answer},
+                "data": {"text": result["text"], "emotion": result["emotion"]},
             }
             await websocket.send(json.dumps(envelope))
             print(f"[brain] ответ отправлен")
