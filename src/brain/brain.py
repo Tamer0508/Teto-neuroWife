@@ -43,7 +43,9 @@ class Brain:
 
     def respond(self, user_message: str) -> str:
         """Один ход диалога: вспомнить -> подумать -> запомнить -> вернуть текст."""
+        t0 = time.perf_counter()
         memories = self.memory.recall(user_message)
+        t1 = time.perf_counter()
         system_instruction = TETO_SYSTEM_PROMPT
         if memories:
             recalled = "\n".join(f"- {m}" for m in memories)
@@ -51,9 +53,14 @@ class Brain:
                 "\n\nЧто ты помнишь о собеседнике из прошлых разговоров "
                 f"(используй это естественно, не зачитывай дословно):\n{recalled}"
             )
-        config = types.GenerateContentConfig(system_instruction=system_instruction)
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
+        )
         self.history.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
         response = self._generate_with_retry(self.history, config)
+        print(f"  [токены] {response.usage_metadata}")
+        t2 = time.perf_counter()
         if response is None:
             self.history.pop()
             return "Ой, серверы Gemini сейчас перегружены. Попробуй ещё раз чуть позже."
@@ -61,4 +68,6 @@ class Brain:
         answer = response.text
         self.history.append(types.Content(role="model", parts=[types.Part(text=answer)]))
         self.memory.remember(user_message, answer)
+        t3 = time.perf_counter()
+        print(f"  [тайминг] recall={t1-t0:.2f}s  llm={t2-t1:.2f}s  remember={t3-t2:.2f}s")
         return answer
