@@ -33,17 +33,21 @@ async def sender(websocket, state, listener):
 
         audio = await asyncio.to_thread(listener.listen)
         if audio is None:
+            print("[stt] audio=None (слишком коротко)")
             continue
 
         if state.teto_speaking:
+            print("[stt] пропуск — Тето говорит")
             continue
 
         text = await asyncio.to_thread(listener.transcribe, audio)
+        print(f"[stt] после transcribe: {text!r}")
         if not text.strip():
+            print("[stt] пусто, пропускаю")
             continue
 
         envelope = {"type": "user_message", "sender": "stt", "data": {"text": text}}
-        print(f"[stt] распознано: {text}")
+        print(f"[stt] ОТПРАВЛЯЮ: {text}")
         await websocket.send(json.dumps(envelope))
 
 

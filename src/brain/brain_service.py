@@ -3,6 +3,7 @@ import json
 from websockets.asyncio.client import connect
 
 from brain import Brain
+from vision import capture_screen
 
 URI = "ws://localhost:8765"
 
@@ -28,6 +29,20 @@ async def main():
             # чтобы не заморозить event loop и не оборвать соединение
             result = await asyncio.to_thread(brain.respond, user_text)
 
+            if result.get("needs_screen"):
+                # 1. Озвучиваем реплику-заглушку ("щас гляну")
+                filler = {
+                    "type": "teto_response",
+                    "sender": "brain",
+                    "data": {"text": result["text"], "emotion": result["emotion"]},
+                }
+                await websocket.send(json.dumps(filler))
+
+                # 2. Скриншот и повторный запрос с картинкой
+                image = await asyncio.to_thread(capture_screen)
+                result = await asyncio.to_thread(brain.respond, user_text, image)
+
+            # финальный ответ (по картинке, либо обычный)
             envelope = {
                 "type": "teto_response",
                 "sender": "brain",

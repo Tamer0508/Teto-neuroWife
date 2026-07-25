@@ -4,7 +4,7 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 SAMPLE_RATE = 16000          # Whisper работает на 16 кГц
-MODEL_SIZE = "base"         # tiny / base / small / medium / large-v3
+MODEL_SIZE = "small"         # tiny / base / small / medium / large-v3
 DEVICE = "cpu"              # или "cpu"
 COMPUTE_TYPE = "int8"        # int8 быстрее и легче
 
@@ -12,6 +12,7 @@ CHUNK = 512                  # Silero VAD требует РОВНО стольк
 VAD_THRESHOLD = 0.5          # выше — считаем речью
 SILENCE_CHUNKS = 25          # ~0.8 сек тишины = конец фразы
 MIN_SPEECH_CHUNKS = 8        # короче — считаем случайным шумом
+GARBAGE = ["субтитр", "редактор", "корректор", "продолжение следует"]
 
 def find_input_device(name_part: str) -> int:
     """Найти индекс устройства ЗАПИСИ по части названия."""
@@ -51,6 +52,8 @@ class Listener:
 
                 
                 prob = self.vad(torch.from_numpy(chunk), SAMPLE_RATE).item()
+                if prob > 0.2:
+                    print(f"  vad={prob:.2f}")
                 is_speech = prob > VAD_THRESHOLD
 
                 if is_speech:
@@ -73,5 +76,11 @@ class Listener:
     def transcribe(self, audio: np.ndarray) -> str:
         """Распознать речь из массива."""
         segments, info = self.model.transcribe(audio, language="ru")
-        return " ".join(segment.text for segment in segments).strip()
+        text = " ".join(s.text for s in segments).strip()
+        print(f"  [сырое] {text!r}") 
+        low = text.lower()
+        if any(g in low for g in GARBAGE):
+            print("  [отсеяно как мусор]")
+            return "" 
+        return text
     

@@ -53,7 +53,7 @@ class VTS:
 
         resp = json.loads(await self.ws.recv())
         print(f"[vts] аутентификация: {resp['data']['authenticated']}")
-        self.trigger(RESET_HOTKEY)
+        await self.trigger(RESET_HOTKEY)
         
 
     async def trigger(self, hotkey_id):
