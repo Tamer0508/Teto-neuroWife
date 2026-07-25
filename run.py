@@ -10,6 +10,7 @@ SERVICES = [
     ("brain", ROOT / "src" / "brain",  "brain_service.py"),
     ("tts",   ROOT / "src" / "tts",    "tts_service.py"),
     ("avatar", ROOT / "src" / "avatar", "avatar_service.py"),
+    ("stt", ROOT / "src" / "stt", "stt_service.py"),
 ]
 
 CLIENT_DIR = ROOT / "src" / "client"
@@ -23,7 +24,7 @@ def main():
         for name, folder, script in SERVICES:
             print(f"[run] запускаю {name}...")
             p = subprocess.Popen(
-                [sys.executable, script],
+                ["cmd", "/k", sys.executable, script],
                 cwd=folder,
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
