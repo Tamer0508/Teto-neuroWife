@@ -3,3 +3,8 @@
 __pycache__/
 *.pyc
 data/
+**/hubert_base.pt
+**/rmvpe.pt
+*.pt
+*.pth
+*.index
