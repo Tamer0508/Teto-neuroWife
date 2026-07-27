@@ -74,6 +74,7 @@ class Voice:
             audio_data=(audio.numpy(), SAMPLE_RATE), tag="teto"
         )
 
-        # 3. Проигрывание в кабель (VTS слушает его для липсинка)
-        sd.play(result_array, sr, device=OUTPUT_DEVICE)
+        # 3. Проигрывание в кабель на РОДНОЙ частоте RVC (32000 для модели Тето).
+        #    Никакого ресемпла — играем ровно с тем sr, что вернул RVC.
+        sd.play(result_array, samplerate=sr, device=OUTPUT_DEVICE)
         sd.wait()

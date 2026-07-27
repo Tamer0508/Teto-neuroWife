@@ -1,8 +1,12 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import json
 from websockets.asyncio.client import connect
 
 from voice import Voice
+from hub_log import send_log
 
 URI = "ws://localhost:8765"
 
@@ -13,7 +17,7 @@ async def main():
     while True:
         try:
             async with connect(URI) as websocket:
-                print("[tts] подключился к хабу")
+                await send_log(websocket, "tts", "Подключился к хабу")
 
                 async for message in websocket:
                     data = json.loads(message)
@@ -23,17 +27,17 @@ async def main():
                     text = data["data"]["text"]
                     emotion = data["data"].get("emotion", "neutral")
 
-                    print('Начинаем говорить')
+                    await send_log(websocket, "tts", f"Синтез ({emotion}): {text[:40]}")
                     await websocket.send(json.dumps(
                         {"type": "speech_started", "sender": "tts", "data": {}}))
-            
+
                     await asyncio.to_thread(voice.speak, text, emotion)
 
-                    print('Закончили говорить')
+                    await send_log(websocket, "tts", "Аудио ушло в CABLE")
                     await websocket.send(json.dumps(
-                        {"type": "speech_finished", "sender": "tts", "data": {}}))    # вся прежняя логика — сюда
+                        {"type": "speech_finished", "sender": "tts", "data": {}}))
         except Exception as e:
-            print(f"[tts] соединение потеряно: {e}")
+            await send_log(websocket, "tts", f"Соединение потеряно: {e}", level="warn")
 
         print("[tts] переподключение через 3 с...")
         await asyncio.sleep(3)

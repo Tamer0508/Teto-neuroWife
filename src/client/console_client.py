@@ -22,7 +22,15 @@ async def sender(websocket):
 
         text = text.strip()
         if not text:
-            continue    
+            continue
+
+        # команды переключения личности: /kind, /mean
+        if text in ("/kind", "/mean"):
+            mode = text[1:]   # убираем "/" -> "kind" / "mean"
+            command = {"type": "set_personality", "sender": "console", "data": {"mode": mode}}
+            await websocket.send(json.dumps(command))
+            print(f"[console] переключаю личность: {mode}")
+            continue          # это команда, не реплика — дальше не шлём
 
         envelope = {"type": "user_message", "sender": "console", "data": {"text": text}}
         await websocket.send(json.dumps(envelope))
@@ -30,7 +38,8 @@ async def sender(websocket):
 
 async def main():
     async with connect(URI) as websocket:
-        print("[console] подключился к хабу\n")
+        print("[console] подключился к хабу")
+        print("[console] команды: /kind — добрая, /mean — дерзкая\n")
         await asyncio.gather(receiver(websocket), sender(websocket))
 
 

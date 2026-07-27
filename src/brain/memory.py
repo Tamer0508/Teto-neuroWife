@@ -10,43 +10,46 @@ class Memory:
 
     def __init__(self, db_path: str = "./data/chroma", user_id: str = "default"):
         self.user_id = user_id
-
-        # Локальная мультиязычная модель эмбеддингов (хорошо знает русский).
-        # Первый запуск скачает ~2 ГБ в кэш, дальше грузит из него.
         embedding_fn = SentenceTransformerEmbeddingFunction(model_name="BAAI/bge-m3")
-
-        # PersistentClient пишет базу на диск -> память переживает перезапуск.
         client = chromadb.PersistentClient(path=db_path)
-
-        # Коллекция = "таблица" воспоминаний. cosine — метрика близости векторов.
         self.collection = client.get_or_create_collection(
             name="user_memory",
             embedding_function=embedding_fn,
             metadata={"hnsw:space": "cosine"},
         )
 
-    def remember(self, user_message: str, teto_message: str) -> None:
-        """Сохранить один обмен репликами в память."""
-        document = f"Пользователь: {user_message}\nТето: {teto_message}"
+    def remember_fact(self, fact: str) -> None:
+        """Сохранить один факт о собеседнике."""
         self.collection.add(
-            documents=[document],
+            documents=[fact],
             metadatas=[{
                 "user_id": self.user_id,
                 "timestamp": datetime.now().isoformat(),
+                "kind": "fact",
             }],
             ids=[str(uuid.uuid4())],
         )
 
+    def delete_fact(self, fact_id: str) -> None:
+        """Удалить факт по его id (для перезаписи)."""
+        self.collection.delete(ids=[fact_id])
+
+    def all_facts(self) -> list[dict]:
+        """Все факты о собеседнике: [{"id":..., "text":...}, ...].
+        Нужно, чтобы модель видела, что уже известно, и не плодила дубли."""
+        got = self.collection.get(where={"user_id": self.user_id})
+        ids = got.get("ids", [])
+        docs = got.get("documents", [])
+        return [{"id": i, "text": t} for i, t in zip(ids, docs)]
+
     def recall(self, query: str, k: int = 4) -> list[str]:
-        """Найти k самых близких по смыслу воспоминаний под текущую реплику."""
+        """Найти k самых близких по смыслу фактов под текущую реплику."""
         count = self.collection.count()
         if count == 0:
             return []
-
         results = self.collection.query(
             query_texts=[query],
             n_results=min(k, count),
             where={"user_id": self.user_id},
         )
-        # query отвечает списком списков (по одному на каждый запрос) -> берём [0]
         return results["documents"][0]

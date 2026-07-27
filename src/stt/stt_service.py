@@ -1,8 +1,12 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import json
 from websockets.asyncio.client import connect
 
 from listener import Listener
+from hub_log import send_log
 
 URI = "ws://localhost:8765"
 
@@ -18,6 +22,10 @@ async def receiver(websocket, state):
     async for message in websocket:
         data = json.loads(message)
         msg_type = data.get("type")
+
+        if msg_type == "log":       # дешёвая страховка, см. пояснение ниже
+            continue
+
         if msg_type == "speech_started":
             state.teto_speaking = True
         if msg_type == "speech_finished":
@@ -27,13 +35,13 @@ async def receiver(websocket, state):
 async def sender(websocket, state, listener):
     """Слушает микрофон и шлёт распознанное в хаб."""
     while True:
-        if state.teto_speaking: 
+        if state.teto_speaking:
             await asyncio.sleep(0.1)
             continue
 
         audio = await asyncio.to_thread(listener.listen)
         if audio is None:
-            print("[stt] audio=None (слишком коротко)")
+            print("[stt] audio=None (слишком коротко)")   # шумно для веб-лога — только консоль
             continue
 
         if state.teto_speaking:
@@ -47,7 +55,7 @@ async def sender(websocket, state, listener):
             continue
 
         envelope = {"type": "user_message", "sender": "stt", "data": {"text": text}}
-        print(f"[stt] ОТПРАВЛЯЮ: {text}")
+        await send_log(websocket, "stt", f"Распознал: {text}")
         await websocket.send(json.dumps(envelope))
 
 
@@ -56,7 +64,7 @@ async def main():
     state = State()
 
     async with connect(URI) as websocket:
-        print("[stt] подключился к хабу")
+        await send_log(websocket, "stt", "Подключился к хабу")
         await asyncio.gather(receiver(websocket, state), sender(websocket, state, listener))
 
 

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Нейро-Тето — монитор</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: Consolas, "Courier New", monospace;
+            background: #1a1a1e;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;            /* две колонки в ряд */
+            gap: 2px;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;   /* заголовок сверху, лента снизу */
+            height: 100vh;
+        }
+
+        #chat-panel { flex: 3; }      /* чат шире */
+        #log-panel  { flex: 2; background: #141417; }
+
+        .panel-title {
+            padding: 10px 14px;
+            background: #2a2a30;
+            font-weight: bold;
+            color: #ff7ab0;           /* розовый — под Тето */
+            flex-shrink: 0;
+        }
+
+        .feed {
+            flex: 1;
+            overflow-y: auto;         /* прокрутка, когда сообщений много */
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* --- чат --- */
+        .msg { padding: 8px 12px; border-radius: 10px; max-width: 80%; line-height: 1.4; }
+        .msg-user { background: #3a3a44; align-self: flex-end; }   /* справа */
+        .msg-teto { background: #4a2740; align-self: flex-start; } /* слева */
+        .msg-emotion { font-size: 0.75em; opacity: 0.6; margin-top: 4px; }
+
+        /* --- лог --- */
+        .log-line { font-size: 0.85em; line-height: 1.5; white-space: pre-wrap; }
+        .log-sender { font-weight: bold; }
+        .log-brain  { color: #7ab0ff; }
+        .log-memory { color: #b07aff; }
+        .log-stt    { color: #7affb0; }
+        .log-tts    { color: #ffcf7a; }
+        .log-avatar { color: #ff7a7a; }
+        .log-warn   { color: #ffb84d; }
+        .log-error  { color: #ff5c5c; }
+
+        .input-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #2a2a30;
+            flex-shrink: 0;
+        }
+        #chat-input {
+            flex: 1;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 8px;
+            background: #1a1a1e;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 1em;
+            outline: none;
+        }
+        #chat-input:focus { outline: 1px solid #ff7ab0; }
+        #send-btn {
+            padding: 0 18px;
+            border: none;
+            border-radius: 8px;
+            background: #ff7ab0;
+            color: #1a1a1e;
+            font-size: 1.1em;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #send-btn:hover { background: #ff9ac4; }
+        #send-btn:disabled { background: #555; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="panel" id="chat-panel">
+        <div class="panel-title">💬 Чат</div>
+        <div class="feed" id="chat-feed"></div>
+        <div class="input-bar">
+            <input type="text" id="chat-input" placeholder="Напиши Тето..." autocomplete="off">
+            <button id="send-btn">▶</button>
+        </div>
+    </div>
+
+    <div class="panel" id="log-panel">
+        <div class="panel-title">📋 Лог сервисов</div>
+        <div class="feed" id="log-feed"></div>
+    </div>
+
+    <script>
+        // === "ручки" на два контейнера из разметки (по id) ===
+        const chatFeed = document.getElementById("chat-feed");
+        const logFeed  = document.getElementById("log-feed");
+        const chatInput = document.getElementById("chat-input");
+        const sendBtn   = document.getElementById("send-btn");
+        let socket = null;   // текущее соединение с хабом, видно всему скрипту
+
+        const HUB_URI = "ws://localhost:8765";
+
+        // === добавить пузырь в чат ===
+        function addChatMessage(text, who, emotion) {
+            // who: "user" или "teto" — от этого зависит класс и сторона
+            const div = document.createElement("div");
+            div.className = "msg msg-" + who;
+            div.textContent = text;   // textContent, не innerHTML — текст, а не разметка
+
+            if (emotion) {            // у ответов Тето есть эмоция, у реплик юзера — нет
+                const em = document.createElement("div");
+                em.className = "msg-emotion";
+                em.textContent = "эмоция: " + emotion;
+                div.appendChild(em);
+            }
+
+            chatFeed.appendChild(div);
+            chatFeed.scrollTop = chatFeed.scrollHeight;   // автопрокрутка вниз
+        }
+
+        // === добавить строку в лог ===
+        function addLogLine(sender, message, level) {
+            const div = document.createElement("div");
+            div.className = "log-line";
+            if (level === "warn")  div.classList.add("log-warn");
+            if (level === "error") div.classList.add("log-error");
+
+            // тег [sender] красим в цвет сервиса, сам текст оставляем обычным
+            const tag = document.createElement("span");
+            tag.className = "log-sender log-" + sender;
+            tag.textContent = "[" + sender + "] ";
+
+            div.appendChild(tag);
+            div.appendChild(document.createTextNode(message));
+
+            logFeed.appendChild(div);
+            logFeed.scrollTop = logFeed.scrollHeight;
+        }
+
+        // === разбор одного конверта {type, sender, data} ===
+        function handleMessage(envelope) {
+            const type = envelope.type;
+            const data = envelope.data || {};   // на случай, если data нет
+
+            if (type === "user_message") {
+                addChatMessage(data.text, "user");
+            }
+            else if (type === "teto_response") {
+                addChatMessage(data.text, "teto", data.emotion);
+            }
+            else if (type === "log") {
+                addLogLine(envelope.sender, data.message, data.level);
+            }
+            // speech_started / speech_finished и прочее — молча игнорируем
+        }
+
+        // === подключение к хабу с авто-переподключением ===
+        function connect() {
+            const ws = new WebSocket(HUB_URI);
+            socket = ws;   // прокидываем наружу, чтобы кнопка отправки видела сокет
+
+            ws.onopen = () => {
+                addLogLine("web", "Подключился к хабу", "info");
+            };
+
+            ws.onmessage = (event) => {
+                const envelope = JSON.parse(event.data);   // строка -> объект
+                handleMessage(envelope);
+            };
+
+            ws.onclose = () => {
+                addLogLine("web", "Связь потеряна, переподключаюсь через 3с...", "warn");
+                setTimeout(connect, 3000);   // хаб перезапустили — пробуем снова
+            };
+        }
+
+        // === отправка реплики в хаб ===
+        function sendMessage() {
+            const text = chatInput.value.trim();
+            if (!text) return;   // пустое не шлём
+
+            // сокет открыт? (1 == WebSocket.OPEN)
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addLogLine("web", "Нет связи с хабом, сообщение не ушло", "warn");
+                return;
+            }
+
+            const envelope = {
+                type: "user_message",
+                sender: "web",
+                data: { text: text },
+            };
+            socket.send(JSON.stringify(envelope));   // тот же конверт, что шлёт консоль
+
+            addChatMessage(text, "user");
+
+            chatInput.value = "";      // чистим поле
+            chatInput.focus();         // курсор обратно в поле, чтобы печатать дальше
+            // пузырь НЕ рисуем — он придёт эхом из хаба и нарисуется в handleMessage
+        }
+
+        // клик по кнопке
+        sendBtn.addEventListener("click", sendMessage);
+
+        // Enter в поле — тоже отправка
+        chatInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+
+        connect();   // поехали
+    </script>
+</body>
+</html>
