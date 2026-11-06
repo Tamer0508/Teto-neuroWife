@@ -12,6 +12,8 @@ SERVICES = [
     ("tts",    ROOT / "src" / "tts",    "tts_service.py"),
     ("avatar", ROOT / "src" / "avatar", "avatar_service.py"),
     ("stt",    ROOT / "src" / "stt",    "stt_service.py"),
+    ("ears",    ROOT / "src" / "ears",    "ears_service.py"),
+    ("overlay", ROOT / "src" / "overlay", "overlay.py"),
     ("server", ROOT / "src",            "server.py"),
 ]
 

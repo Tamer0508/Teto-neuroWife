@@ -14,6 +14,19 @@ EMOTIONS = ["joy", "neutral", "surprise", "sad", "embarrassed", "pout"]
 
 MAX_HISTORY_PAIRS = 10   # сколько последних обменов держим в контексте
 
+# --- кто говорит: ярлыки для промпта ---
+LABEL_OWNER = "Хозяин"
+LABEL_DISCORD = "Кто-то в Discord"
+
+# пояснение модели, как читать ярлыки (добавляется в system каждый ход)
+SPEAKER_NOTE = (
+    "\n\nВ диалоге реплики помечены, кто говорит:\n"
+    "- «Хозяин:» — твой владелец, тот, с кем ты общаешься постоянно и кого помнишь.\n"
+    "- «Кто-то в Discord:» — другой человек в голосовом чате. Это НЕ хозяин, "
+    "по именам ты их не знаешь, но можешь им отвечать. Не путай их с хозяином "
+    "и не приписывай им то, что помнишь о хозяине."
+)
+
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -112,8 +125,10 @@ class Brain:
         self.mode = mode
         return True
 
-    def respond(self, user_message: str, image: bytes | None = None) -> dict:
+    def respond(self, user_message: str, image: bytes | None = None,
+                source: str | None = None) -> dict:
         """Один ход диалога. image — если Тето смотрит на экран.
+        source: None/"mic" — говорит хозяин (микрофон); "desktop" — реплика из Discord.
         ВНИМАНИЕ: память тут больше не трогается — этим занимается brain_service
         после отправки ответа (чтобы не тормозить речь Тето)."""
         t0 = time.perf_counter()
@@ -124,11 +139,16 @@ class Brain:
         if memories:
             recalled = "\n".join(f"- {m}" for m in memories)
             system_instruction += (
-                "\n\nЧто ты помнишь о собеседнике из прошлых разговоров "
+                "\n\nЧто ты помнишь о хозяине из прошлых разговоров "
                 f"(используй это естественно, не зачитывай дословно):\n{recalled}"
             )
+        system_instruction += SPEAKER_NOTE
 
-        parts = [types.Part(text=user_message)]
+        # помечаем реплику ярлыком говорящего
+        label = LABEL_DISCORD if source == "desktop" else LABEL_OWNER
+        tagged = f"{label}: {user_message}"
+
+        parts = [types.Part(text=tagged)]
         if image is not None:
             parts.append(types.Part.from_bytes(data=image, mime_type="image/jpeg"))
 
@@ -165,9 +185,9 @@ class Brain:
         needs_screen = data["needs_screen"]
 
         # В историю кладём ТОЛЬКО финальный ответ (не запрос скриншота),
-        # реплику юзера — без картинки, чтобы не раздувать контекст.
+        # реплику юзера — с ярлыком, но без картинки, чтобы не раздувать контекст.
         if not needs_screen:
-            self.history.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
+            self.history.append(types.Content(role="user", parts=[types.Part(text=tagged)]))
             self.history.append(types.Content(role="model", parts=[types.Part(text=answer)]))
             # держим последние N пар; режем КРАТНО 2, чтобы не осталось
             # висячего model без своего user (Gemini требует чередования ролей)
@@ -177,9 +197,15 @@ class Brain:
         return {"text": answer, "emotion": emotion, "needs_screen": needs_screen,
                 "recalled": len(memories)}
 
-    def remember_facts(self, user_message: str, teto_message: str) -> list[str]:
+    def remember_facts(self, user_message: str, teto_message: str,
+                       source: str | None = None) -> list[str]:
         """Обновить память по обмену: добавить новые факты, заменить устаревшие.
-        Зовётся из brain_service ПОСЛЕ отправки ответа. Возвращает описания изменений."""
+        Зовётся из brain_service ПОСЛЕ отправки ответа. Возвращает описания изменений.
+        Для source="desktop" (реплика из Discord) память НЕ трогаем: голоса собеседников
+        мы не различаем, и их факты не должны смешиваться с фактами о хозяине."""
+        if source == "desktop":
+            return []
+
         known = self.memory.all_facts()
         operations = self._extract_facts(user_message, teto_message, known)
 

@@ -36,10 +36,12 @@ async def main():
                 continue
 
             user_text = data["data"]["text"]
-            await send_log(websocket, "brain", f"Реплика: {user_text[:60]}")
+            source = data["data"].get("source")          # "desktop" у ears, нет у stt
+            who = "Discord" if source == "desktop" else "хозяин"
+            await send_log(websocket, "brain", f"Реплика ({who}): {user_text[:60]}")
 
             await send_log(websocket, "brain", "Запрос к Gemini...")
-            result = await asyncio.to_thread(brain.respond, user_text)
+            result = await asyncio.to_thread(brain.respond, user_text, source=source)
 
             if result.get("needs_screen"):
                 await send_log(websocket, "brain", "Нужен экран — делаю скриншот")
@@ -51,7 +53,7 @@ async def main():
                 await websocket.send(json.dumps(filler))
 
                 image = await asyncio.to_thread(capture_screen)
-                result = await asyncio.to_thread(brain.respond, user_text, image)
+                result = await asyncio.to_thread(brain.respond, user_text, image, source=source)
 
             await send_log(websocket, "memory", f"Recall: {result.get('recalled', 0)} фрагм.")
 
@@ -67,9 +69,11 @@ async def main():
             }
             await websocket.send(json.dumps(envelope))
 
-            # факты: обновляем память после ответа
+            # факты: обновляем память после ответа (для Discord-реплик brain сам вернёт пусто)
             if not result.get("needs_screen") and not result.get("error"):
-                changes = await asyncio.to_thread(brain.remember_facts, user_text, result["text"])
+                changes = await asyncio.to_thread(
+                    brain.remember_facts, user_text, result["text"], source=source
+                )
                 if changes:
                     await send_log(websocket, "memory", f"Память: {', '.join(changes)}")
                 else:

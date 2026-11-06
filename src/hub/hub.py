@@ -1,5 +1,6 @@
 import asyncio
 from websockets.asyncio.server import serve
+from websockets.exceptions import ConnectionClosed
 
 HOST = "localhost"
 PORT = 8765
@@ -16,12 +17,23 @@ async def handler(websocket):
 
     try:
         async for message in websocket:
+            # рассылаем всем, КРОМЕ отправителя.
+            # дохлый клиент НЕ должен срывать доставку остальным — оборачиваем каждый send.
             for client in list(clients):
-                if client is not websocket:
+                if client is websocket:
+                    continue
+                try:
                     await client.send(message)
+                except Exception:
+                    clients.discard(client)      # клиент отвалился — убираем, идём дальше
 
+    except ConnectionClosed:
+        pass                                     # клиент закрылся резко — это норма, хаб не роняем
+    except Exception as e:
+        print(f"[hub] ошибка соединения: {e}")
     finally:
-        clients.remove(websocket)
+        clients.discard(websocket)
+        print(f"[hub] клиент отключился, всего: {len(clients)}")
 
 
 async def main():

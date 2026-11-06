@@ -31,13 +31,20 @@ async def main():
                     await websocket.send(json.dumps(
                         {"type": "speech_started", "sender": "tts", "data": {}}))
 
-                    await asyncio.to_thread(voice.speak, text, emotion)
-
-                    await send_log(websocket, "tts", "Аудио ушло в CABLE")
-                    await websocket.send(json.dumps(
-                        {"type": "speech_finished", "sender": "tts", "data": {}}))
+                    # ошибка звука НЕ должна валить соединение и НЕ должна оставлять
+                    # гейт speech висящим (иначе stt/ears замолкнут навсегда)
+                    try:
+                        await asyncio.to_thread(voice.speak, text, emotion)
+                        await send_log(websocket, "tts", "Аудио ушло в CABLE")
+                    except Exception as e:
+                        await send_log(websocket, "tts",
+                                       f"Ошибка воспроизведения: {e}", level="error")
+                    finally:
+                        await websocket.send(json.dumps(
+                            {"type": "speech_finished", "sender": "tts", "data": {}}))
         except Exception as e:
-            await send_log(websocket, "tts", f"Соединение потеряно: {e}", level="warn")
+            # сюда попадаем только на реальном обрыве WS (не на ошибке звука)
+            print(f"[tts] соединение с хабом потеряно: {e}")
 
         print("[tts] переподключение через 3 с...")
         await asyncio.sleep(3)

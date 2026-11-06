@@ -5,8 +5,8 @@ from faster_whisper import WhisperModel
 
 SAMPLE_RATE = 16000          # Whisper работает на 16 кГц
 MODEL_SIZE = "small"         # tiny / base / small / medium / large-v3
-DEVICE = "cpu"              # или "cpu"
-COMPUTE_TYPE = "int8"        # int8 быстрее и легче
+DEVICE = "cuda"              # или "cpu"
+COMPUTE_TYPE = "float16"        # int8 быстрее и легче
 
 CHUNK = 512                  # Silero VAD требует РОВНО столько семплов при 16 кГц
 VAD_THRESHOLD = 0.5          # выше — считаем речью

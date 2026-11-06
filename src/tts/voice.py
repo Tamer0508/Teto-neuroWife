@@ -20,13 +20,43 @@ SAMPLE_RATE = 48000
 RVC_MODEL = r"C:\rvc-models\teto\KasaneTetotalkcvlc1.5_215e_7740s.pth"
 RVC_INDEX = r"C:\rvc-models\teto\KasaneTetotalkcvlc1.5.index"
 
-OUTPUT_DEVICE = 16      # в кабель -> VTube Studio липсинк
+# Устройство вывода ищем по ИМЕНИ (индексы съезжают при смене устройств).
+# DirectSound спокойно принимает родную частоту RVC и сам ресемплит в кабель —
+# поэтому НИКАКОГО soxr/пересчёта в коде: играем ровно то, что отдал RVC.
+OUTPUT_DEVICE_NAME = "CABLE Input"
+OUTPUT_HOSTAPI = "DirectSound"
 
 PROSODY = {
     "joy":         ("high", "fast"),
     "embarrassed": ("medium", "slow"),
     # остальные эмоции -> None (обычный голос)
 }
+
+
+def find_output_device(name_part: str, hostapi_part: str | None = None) -> int:
+    """Найти устройство ВЫВОДА по части имени. Если задан hostapi_part
+    (например 'DirectSound') — предпочесть его, иначе взять любое совпадение."""
+    target_api = None
+    if hostapi_part:
+        for i, api in enumerate(sd.query_hostapis()):
+            if hostapi_part.lower() in api["name"].lower():
+                target_api = i
+                break
+
+    any_match = None
+    api_match = None
+    for idx, dev in enumerate(sd.query_devices()):
+        if dev["max_output_channels"] > 0 and name_part.lower() in dev["name"].lower():
+            if any_match is None:
+                any_match = idx
+            if target_api is not None and dev["hostapi"] == target_api:
+                api_match = idx
+                break
+
+    chosen = api_match if api_match is not None else any_match
+    if chosen is None:
+        raise RuntimeError(f"[voice] устройство вывода '{name_part}' не найдено")
+    return chosen
 
 
 class Voice:
@@ -48,6 +78,11 @@ class Voice:
             pitch_lvl=-2,
             index_influence=0.75,
         )
+
+        self.output_device = find_output_device(OUTPUT_DEVICE_NAME, OUTPUT_HOSTAPI)
+        dev = sd.query_devices(self.output_device)
+        api = sd.query_hostapis(dev["hostapi"])["name"]
+        print(f"[voice] вывод -> [{self.output_device}] {dev['name']} ({api})")
         print("[voice] голос готов")
 
     def speak(self, text: str, emotion: str = "neutral") -> None:
@@ -73,8 +108,9 @@ class Voice:
         result_array, sr = self.rvc.generate_from_cache(
             audio_data=(audio.numpy(), SAMPLE_RATE), tag="teto"
         )
+        print(f"[voice] RVC отдал sr={sr}")   # диагностика частоты — скажи, что печатает
 
-        # 3. Проигрывание в кабель на РОДНОЙ частоте RVC (32000 для модели Тето).
-        #    Никакого ресемпла — играем ровно с тем sr, что вернул RVC.
-        sd.play(result_array, samplerate=sr, device=OUTPUT_DEVICE)
+        # 3. Проигрывание на РОДНОЙ частоте RVC, без ресемпла.
+        #    DirectSound сам приведёт к формату кабеля.
+        sd.play(result_array, samplerate=sr, device=self.output_device)
         sd.wait()
